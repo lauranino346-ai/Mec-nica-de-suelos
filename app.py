@@ -45,9 +45,10 @@ st.markdown(
     """
 Esta app permite:
 
-1. **Calcular fases gravimétricas y volumétricas** con unidades coherentes (g y cm³).  
-2. **Clasificar el suelo según AASHTO y SUCS**, con interpretación para vías y edificaciones.  
-3. **Procesar el ensayo de Límite Líquido** (relación N–w).
+1. **Calcular contenido de humedad** a partir de pesos con recipiente.  
+2. **Calcular fases gravimétricas y volumétricas** (g y cm³).  
+3. **Clasificar el suelo según AASHTO y SUCS**, con análisis de uso en vías y edificaciones.  
+4. **Procesar el ensayo de Límite Líquido** (relación N–w).
 """
 )
 
@@ -220,6 +221,7 @@ Usando:
             key="secR_h",
         )
     with colh3:
+:
         R_h = st.number_input(
             "Peso del recipiente (g)",
             min_value=0.0,
@@ -264,7 +266,7 @@ Usando:
 
 - Pesos en **gramos (g)**  
 - Volúmenes en **cm³**  
-- Peso específico del agua **γw = 1 g/cm³**
+- Peso específico del agua **γw = 1 g/cm³** (valor por defecto, ajustable).
         """
     )
 
@@ -296,12 +298,14 @@ Usando:
             min_value=0.0,
             value=0.0,
             step=0.1,
+            help="Si lo dejas en 0, se calculará como Vw = Ww / γw.",
         )
         Vs = st.number_input(
             "Volumen de sólidos Vs (cm³)",
             min_value=0.0,
             value=0.0,
             step=0.1,
+            help="Si lo dejas en 0, se calculará como Vs = Ws / (Gs · γw).",
         )
 
     with col2:
@@ -341,6 +345,19 @@ Usando:
     Va_v = nz(Va)
     Vw_v = nz(Vw)
     Vs_v = nz(Vs)
+
+    # --------- NUEVO: CÁLCULO AUTOMÁTICO DE Vw Y Vs SI NO SE INGRESAN ---------
+    mensajes_auto = []
+    if Vw_v is None and Ww_v is not None and gamma_w > 0:
+        Vw_v = Ww_v / gamma_w
+        mensajes_auto.append(f"Volumen de agua Vw calculado automáticamente como Ww/γw = {Vw_v:.4g} cm³.")
+
+    if Vs_v is None and Ws_v is not None and gamma_w > 0 and Gs > 0:
+        Vs_v = Ws_v / (Gs * gamma_w)
+        mensajes_auto.append(f"Volumen de sólidos Vs calculado automáticamente como Ws/(Gs·γw) = {Vs_v:.4g} cm³.")
+
+    if mensajes_auto:
+        st.info("Cálculos automáticos en fases:\n\n- " + "\n- ".join(mensajes_auto))
 
     if not errores_fases and Ww_v and Ws_v and (Va_v or Vw_v or Vs_v):
         results, Vt_calc, Vv_calc, Va_c, Vw_c, Vs_c, Wt_c = compute_fases_personalizadas(
@@ -403,7 +420,7 @@ Usando:
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Ingresa volúmenes distintos de cero para ver el diagrama.")
+            st.info("Ingresa volúmenes distintos de cero o deja que se calculen para ver el diagrama.")
 
         # Guardar en base de datos de la sesión
         if st.button("💾 Guardar resultados de fases en base de datos"):
@@ -412,8 +429,8 @@ Usando:
                 "Ww (g)": Ww,
                 "Ws (g)": Ws,
                 "Va (cm³)": Va,
-                "Vw (cm³)": Vw,
-                "Vs (cm³)": Vs,
+                "Vw (cm³)": Vw if Vw != 0 else Vw_c,
+                "Vs (cm³)": Vs if Vs != 0 else Vs_c,
                 "γw (g/cm³)": gamma_w,
                 "Gs": Gs,
             }
@@ -432,7 +449,7 @@ Usando:
 
         pdf_lines = [
             f"Muestra: {sample_id_1}",
-            f"Ww={Ww} g, Ws={Ws} g, Va={Va} cm³, Vw={Vw} cm³, Vs={Vs} cm³",
+            f"Ww={Ww} g, Ws={Ws} g, Va={Va} cm³, Vw={Vw if Vw != 0 else Vw_c} cm³, Vs={Vs if Vs != 0 else Vs_c} cm³",
             "",
         ] + [f"{k}: {v:.4g}" for k, v in results.items()]
         pdf_bytes = make_pdf_simple("Informe de fases gravimétricas y volumétricas", pdf_lines)
@@ -455,7 +472,7 @@ Usando:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
     elif not errores_fases:
-        st.warning("Ingresa al menos Ww, Ws y algunos volúmenes para calcular las fases.")
+        st.warning("Ingresa al menos Ww, Ws y algunos volúmenes (o deja Vs/Vw en cero) para calcular las fases.")
 
 
 # ---------------------------------------------------------
@@ -473,8 +490,8 @@ def classify_aashto_from_table(LL, IP, P10, P40, P200):
     """
     Lógica guiada por la tabla (materiales granulares vs limo-arcillosos):
 
-    - P200 < 35% → materiales granulares (A-1, A-3, A-2-4,5,6,7)
-    - P200 ≥ 36% → materiales limo-arcillosos (A-4,5,6,7-5,7-6)
+    - P200 < 35% → materiales granulares (A-1, A-2, A-3)
+    - P200 ≥ 36% → materiales limo-arcillosos (A-4,5,6,7)
 
     CASO ESPECIAL:
     Cuando NO se tienen LL ni IP, si el suelo es granular (P200 < 35%)
