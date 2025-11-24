@@ -47,7 +47,7 @@ Esta app permite:
 
 1. **Calcular fases gravimétricas y volumétricas** con unidades coherentes (g y cm³).  
 2. **Clasificar el suelo según AASHTO y SUCS**, con interpretación para vías y edificaciones.  
-3. **Procesar el ensayo de Límite Líquido** (N–w).
+3. **Procesar el ensayo de Límite Líquido** (relación N–w).
 """
 )
 
@@ -102,11 +102,11 @@ def compute_fases_personalizadas(Ww, Ws, Va, Vw, Vs, gamma_w, Gs):
     W%: (Ww / Ws)*100
     γ (peso unitario húmedo): (Ww + Ws) / (Vs + Vv)  [g/cm³]
     γd: Ws / (Vs + Va)                               [g/cm³]
-    γsat: (Ww + Ws) / (Vs + Vw)                       [g/cm³]
+    γsat: (Ww + Ws) / (Vs + Vw)                      [g/cm³]
     e: Vv / Vt                                       (se reporta en %)
     n: e / (e + 1)                                   (se reporta en %)
     S: Vw / Vv * 100                                 [%]
-    Iv: e / (1 - n)                                  (definido aquí de forma física, se reporta en %)
+    Iv: e / (1 - n)                                  (se reporta en %)
     Vt: Va + Vw + Vs                                 [cm³]
     Vv: Va + Vw                                      [cm³]
     Ar: Va / Vv * 100                                [%]
@@ -159,7 +159,7 @@ def compute_fases_personalizadas(Ww, Ws, Va, Vw, Vs, gamma_w, Gs):
         S = (Vw / Vv) * 100.0
         results["S (grado de saturación) [%]"] = S
 
-    # Índice de vacíos Iv – versión física (no literal de la fórmula rara)
+    # Índice de vacíos Iv – versión física
     if e_raw is not None and n_raw is not None and (1.0 - n_raw) != 0:
         Iv_raw = e_raw / (1.0 - n_raw)
         results["Iv (índice de vacíos) [%]"] = Iv_raw * 100.0
@@ -343,7 +343,7 @@ with tabs[0]:
 
 
 # ---------------------------------------------------------
-# PARTE 2 – AASHTO + SUCS (CON LP Y IP)
+# PARTE 2 – AASHTO + SUCS
 # ---------------------------------------------------------
 def compute_group_index(LL, IP, P200):
     if LL is None or IP is None or P200 is None:
@@ -355,13 +355,85 @@ def compute_group_index(LL, IP, P200):
 
 def classify_aashto_from_table(LL, IP, P10, P40, P200):
     """
-    Lógica guiada por la tabla que enviaste (materiales granulares vs limo-arcillosos):
+    Lógica guiada por la tabla (materiales granulares vs limo-arcillosos):
 
     - P200 < 35% → materiales granulares (A-1, A-3, A-2-4,5,6,7)
     - P200 ≥ 36% → materiales limo-arcillosos (A-4,5,6,7-5,7-6)
+
+    CASO ESPECIAL:
+    Cuando NO se tienen LL ni IP, si el suelo es granular (P200 < 35%)
+    se intenta clasificar solo en A-1-a, A-1-b o A-3 usando los tamices,
+    tal como pediste.
     """
-    if LL is None or IP is None or P200 is None:
-        return None, None, None, "Información insuficiente para clasificar.", "", ""
+    if P200 is None:
+        return None, None, None, "No se cuenta con % que pasa por el tamiz #200; no es posible clasificar.", "", ""
+
+    # --------- CASO SIN LÍMITES DE ATTERBERG (LL e IP ausentes) ----------
+    if (LL is None or LL == 0) and (IP is None or IP == 0):
+        GI = None
+        grupo = None
+        subgrupo = None
+
+        # Solo podemos llegar a A-1 o A-3 (materiales granulares)
+        if P200 < 35:
+            P10_ok = P10 is not None
+            P40_ok = P40 is not None
+
+            if P10_ok and P40_ok:
+                # A-1-a
+                if P10 <= 50 and P40 <= 30 and P200 <= 15:
+                    grupo, subgrupo = "A-1", "A-1-a"
+                # A-1-b
+                elif P40 <= 50 and P200 <= 25:
+                    grupo, subgrupo = "A-1", "A-1-b"
+            # A-3
+            if grupo is None and P40_ok and P40 >= 51 and P200 <= 10:
+                grupo, subgrupo = "A-3", None
+
+        if grupo is None:
+            return (
+                None,
+                None,
+                None,
+                "Solo se cuenta con información granulométrica; con estos datos el suelo no "
+                "cumple claramente las condiciones de A-1 o A-3 según AASHTO.",
+                "",
+                "",
+            )
+
+        # Interpretación geotécnica básica
+        tipologia = ""
+        calidad = ""
+        uso = ""
+
+        if grupo.startswith("A-1"):
+            tipologia = "Gravas y arenas gruesas con muy pocos finos; fragmentos de roca competentes."
+            calidad = "Excelente a buena como material estructural de subbase y base granular."
+            uso = (
+                "En vías: muy apropiado para capas de subbase y base en pavimentos flexibles, "
+                "con alta capacidad de drenaje y buen módulo resiliente. Requiere únicamente "
+                "control de compactación y espesor. "
+                "En edificaciones: se utiliza como relleno estructural y material de soporte de "
+                "cimentaciones superficiales, reduciendo asentamientos y mejorando el drenaje "
+                "alrededor de las zapatas."
+            )
+        elif grupo == "A-3":
+            tipologia = "Arena fina limpia, usualmente bien lavada, con contenido muy bajo de finos."
+            calidad = "Aceptable como subrasante en condiciones drenadas; moderadamente sensible a saturación."
+            uso = (
+                "En vías: adecuada para subrasantes y rellenos ligeros; puede desarrollar problemas de "
+                "erosión superficial y pérdida de soporte en presencia de escorrentía o nivel freático alto, "
+                "por lo que se recomienda implementar drenajes longitudinales y transversales. "
+                "En edificaciones: se emplea como relleno bajo losas o cimentaciones con cargas moderadas, "
+                "asegurando densificación adecuada para minimizar deformaciones y, en zonas sísmicas, "
+                "evaluar potencial de licuación si el material se encuentra saturado."
+            )
+
+        return grupo, subgrupo, GI, tipologia, calidad, uso
+
+    # --------- CASO NORMAL: CON LL E IP ----------
+    if LL is None or IP is None:
+        return None, None, None, "Información insuficiente de límites de Atterberg para clasificar.", "", ""
 
     GI = compute_group_index(LL, IP, P200)
     grupo = None
@@ -419,7 +491,7 @@ def classify_aashto_from_table(LL, IP, P10, P40, P200):
             "",
         )
 
-    # Tipología + análisis más profundo para vías y edificaciones
+    # --------- INTERPRETACIÓN GEOTÉCNICA Y DE USO ---------
     tipologia = ""
     calidad = ""
     uso = ""
@@ -429,60 +501,77 @@ def classify_aashto_from_table(LL, IP, P10, P40, P200):
         calidad = "Excelente a buena como material estructural de subbase y base granular."
         uso = (
             "En vías: muy apropiado para capas de subbase y base en pavimentos flexibles, "
-            "siempre que se controle la compactación y el drenaje. "
-            "En edificaciones: recomendable como material de relleno estructural bajo cimentaciones "
-            "superficiales y losas sobre terreno, con baja compresibilidad y gran resistencia al corte."
+            "con alta capacidad de drenaje y buen módulo resiliente. Requiere únicamente "
+            "control de compactación y espesor. "
+            "En edificaciones: se utiliza como relleno estructural y material de soporte de "
+            "cimentaciones superficiales, reduciendo asentamientos y mejorando el drenaje "
+            "alrededor de las zapatas."
         )
     elif grupo == "A-3":
-        tipologia = "Arena fina limpia, a menudo de origen eólico o fluvial, con casi nulos finos plásticos."
-        calidad = "Aceptable como subrasante en sectores bien drenados; puede perder capacidad si se satura."
+        tipologia = "Arena fina limpia, usualmente bien lavada, con contenido muy bajo de finos."
+        calidad = "Aceptable como subrasante en condiciones drenadas; moderadamente sensible a saturación."
         uso = (
-            "En vías: adecuada como subrasante y rellenos de baja altura, pero sensible a erosión y "
-            "pérdida de soporte en presencia de agua. En edificaciones: puede emplearse como relleno "
-            "bajo losas ligeras si se garantiza drenaje y se evita la licuación en zonas sísmicas."
+            "En vías: adecuada para subrasantes y rellenos ligeros; puede desarrollar problemas de "
+            "erosión superficial y pérdida de soporte en presencia de escorrentía o nivel freático alto, "
+            "por lo que se recomienda implementar drenajes longitudinales y transversales. "
+            "En edificaciones: se emplea como relleno bajo losas o cimentaciones con cargas moderadas, "
+            "asegurando densificación adecuada para minimizar deformaciones y, en zonas sísmicas, "
+            "evaluar potencial de licuación si el material se encuentra saturado."
         )
     elif grupo == "A-2":
-        tipologia = "Mezclas de gravas y arenas con porcentaje significativo de limos o arcillas."
+        tipologia = "Mezclas de gravas y arenas con finos limo-arcillosos en proporciones moderadas."
         calidad = "Variable; desde aceptable hasta marginal según el subgrupo y el índice de grupo."
         uso = (
-            "En vías: pueden funcionar como subrasante y subbase, pero requieren control estricto de "
-            "contenido de humedad, compactación y drenaje para evitar pérdida de módulo resiliente. "
-            "En edificaciones: útiles como rellenos estructurales si se evalúa su comportamiento "
-            "frente a ciclos húmedo-seco y se limitan las deformaciones admisibles."
+            "En vías: puede funcionar como subrasante y subbase si se controla el contenido de humedad "
+            "y se garantiza un drenaje eficiente. Los finos plásticos incrementan la sensibilidad a la "
+            "saturación y la pérdida de módulo resiliente, por lo que puede ser necesario estabilizar "
+            "con cal o cemento en zonas críticas. "
+            "En edificaciones: útil como relleno estructural si se controla la compactación y se evalúa "
+            "el comportamiento frente a ciclos húmedo-seco y cambios de nivel freático."
         )
     elif grupo == "A-4":
-        tipologia = "Limos inorgánicos de plasticidad baja, con comportamiento más friccional que cohesivo."
-        calidad = "Aceptable a mala como subrasante; susceptible a deformaciones al saturarse."
+        tipologia = "Limos inorgánicos de plasticidad baja, con comportamiento intermedio entre friccional y cohesivo."
+        calidad = "Aceptable a mala como subrasante; se deforma con facilidad al saturarse."
         uso = (
-            "En vías: suele requerir mejoramiento mediante capas granulares o estabilización (cal/cemento) "
-            "antes de recibir cargas pesadas. En edificaciones: se recomienda limitar su uso como relleno "
-            "estructural bajo cimentaciones; es preferible utilizarlo en zonas de relleno no estructural."
+            "En vías: se recomienda utilizar capas de transición granulares y, cuando sea necesario, "
+            "estabilizar con cal o cemento para mejorar la rigidez y reducir la susceptibilidad a la "
+            "humedad. No es recomendable como material de base sin tratamiento. "
+            "En edificaciones: puede emplearse como suelo de apoyo en estructuras ligeras solo después "
+            "de verificar consolidación y límite de deformaciones admisibles; en edificaciones pesadas "
+            "se prefiere cimentar en estratos más competentes o realizar mejoramiento."
         )
     elif grupo == "A-5":
-        tipologia = "Limos inorgánicos de plasticidad media-alta y sensibilidad marcada a cambios de humedad."
-        calidad = "Mala como subrasante; alta compresibilidad y baja capacidad portante en húmedo."
+        tipologia = "Limos inorgánicos de plasticidad media-alta, con fuerte variación de volumen ante cambios de humedad."
+        calidad = "Mala como subrasante; alta compresibilidad y baja capacidad portante en estado húmedo."
         uso = (
-            "En vías: normalmente requiere reemplazo parcial o total, o estabilización intensiva, "
-            "para lograr módulos adecuados. En edificaciones: se desaconseja como suelo de fundación "
-            "directa; es necesario analizar consolidación y posibles asentamientos diferenciales."
+            "En vías: suelen requerir reemplazo parcial o total en la zona de influencia de esfuerzos, "
+            "o estabilización química intensiva. Se debe controlar cuidadosamente la humedad de "
+            "compactación y evitar la construcción en épocas muy lluviosas. "
+            "En edificaciones: no es aconsejable apoyar cimentaciones directamente sobre estos suelos "
+            "sin un estudio detallado de consolidación y expansión; frecuentemente se opta por pilotajes "
+            "o columnas de grava, o por losas de cimentación que repartan mejor las deformaciones."
         )
     elif grupo == "A-6":
         tipologia = "Arcillas inorgánicas de plasticidad media con comportamiento cohesivo dominante."
-        calidad = "Mala como subrasante; compresible y susceptible a agrietamiento por retracción."
+        calidad = "Mala como subrasante; sujeta a agrietamiento por retracción y asentamientos importantes."
         uso = (
-            "En vías: conviene limitar su participación en la zona de esfuerzos máximos, empleando "
-            "capas de transición y estabilización. En edificaciones: requiere estudios geotécnicos "
-            "detallados, control de niveles freáticos y, en muchos casos, cimentaciones profundas o "
-            "mejoramiento del terreno."
+            "En vías: se sugiere limitar el espesor efectivo de este material en la zona de esfuerzos, "
+            "usando capas granulares de buena calidad y, cuando sea viable, estabilización con cal o "
+            "mezclas cal-ceniza/cemento. Necesita un drenaje superficial y subterráneo eficiente. "
+            "En edificaciones: requiere estudios geotécnicos específicos (ensayos de consolidación y "
+            "corte) y diseños de cimentación que consideren la compresibilidad y la posible expansión; "
+            "en muchos casos se recomiendan cimentaciones profundas o mejoramiento del terreno."
         )
     elif grupo.startswith("A-7"):
-        tipologia = "Arcillas inorgánicas de alta plasticidad, expansivas y de elevada compresibilidad."
-        calidad = "Muy mala como subrasante; generan grandes deformaciones y fisuras en estructuras apoyadas."
+        tipologia = "Arcillas inorgánicas de alta plasticidad, altamente expansivas y compresibles."
+        calidad = "Muy mala como subrasante; genera deformaciones grandes y fisuras en la estructura soportada."
         uso = (
-            "En vías: se recomienda su reemplazo o la implementación de soluciones de mejoramiento "
-            "robusto (cal, columnas de suelo mejorado, geosintéticos) para controlar expansividad. "
-            "En edificaciones: su uso como suelo de apoyo directo es crítico; puede requerir cimentaciones "
-            "profundas, losas flotantes o sistemas especiales de mitigación de expansividad."
+            "En vías: es habitual reemplazar total o parcialmente estos materiales en la zona de la subrasante, "
+            "o recurrir a tratamientos de mejoramiento robustos (estabilización con cal/cemento, columnas de "
+            "suelo mejorado, geosintéticos de refuerzo). El control de humedad durante la obra es crítico. "
+            "En edificaciones: el diseño debe considerar explícitamente la expansividad y los cambios volumétricos; "
+            "se suelen utilizar cimentaciones profundas, losas flotantes o soluciones con suelos mejorados para "
+            "evitar daños por levantamientos diferenciales."
         )
 
     return grupo, subgrupo, GI, tipologia, calidad, uso
@@ -493,9 +582,20 @@ def classify_sucs_from_aashto(LL, IP, P200, grupo_aashto, subgrupo_aashto, P10, 
     Usa el resultado AASHTO para inferir si el suelo es granular (grava/arena)
     o fino, y a partir de eso hace una clasificación SUCS simplificada
     (con Carta de Plasticidad).
+
+    Además devuelve un análisis más completo del comportamiento y
+    recomendaciones para obras civiles.
     """
-    if LL is None or IP is None or P200 is None:
-        return None, "Información insuficiente para clasificación SUCS."
+    if P200 is None:
+        return None, "No se cuenta con % que pasa por el tamiz #200; no es posible clasificar SUCS."
+
+    # Si no hay límites de Atterberg, avisamos que la SUCS es incompleta
+    if LL is None or IP is None:
+        return (
+            None,
+            "No se cuenta con límites de Atterberg (LL e IP); la clasificación SUCS formal requiere "
+            "esa información para diferenciar limos y arcillas y para ubicar el punto en la Carta de Plasticidad.",
+        )
 
     # Línea A de Casagrande
     linea_A = 0.73 * (LL - 20)
@@ -517,55 +617,128 @@ def classify_sucs_from_aashto(LL, IP, P200, grupo_aashto, subgrupo_aashto, P10, 
     else:
         tipo_grueso = None  # A-4,5,6,7 → suelos finos
 
-    # Si P200 ≥ 50% consideramos suelo de grano fino
+    # ---------- SUELOS FINOS ----------
     if P200 >= 50 or tipo_grueso is None:
         if IP < linea_A:
             if LL < 50:
-                return "ML", "Limo inorgánico de baja plasticidad (SUCS)."
+                codigo = "ML"
+                base_desc = "Limo inorgánico de baja plasticidad (SUCS)."
             else:
-                return "MH", "Limo inorgánico de alta plasticidad (SUCS)."
+                codigo = "MH"
+                base_desc = "Limo inorgánico de alta plasticidad (SUCS)."
         else:
             if LL < 50:
-                return "CL", "Arcilla inorgánica de baja plasticidad (SUCS)."
+                codigo = "CL"
+                base_desc = "Arcilla inorgánica de baja plasticidad (SUCS)."
             else:
-                return "CH", "Arcilla inorgánica de alta plasticidad (SUCS)."
-
-    # Suelo granular (P200 < 50) con tipo_grueso definido
-    base = "G" if tipo_grueso == "Grava" else "S"
-    F = P200
-
-    if F < 5:
-        # sin datos granulométricos detallados asumimos gradación pobre
-        codigo = base + "P"
-        return (
-            codigo,
-            f"{'Grava' if base=='G' else 'Arena'} con muy pocos finos; gradación asumida pobre (SUCS).",
-        )
-    elif F > 12:
-        if IP < linea_A:
-            sufijo = "M"
-            desc_finos = "limosos"
-        else:
-            sufijo = "C"
-            desc_finos = "arcillosos"
-        codigo = base + sufijo
-        return (
-            codigo,
-            f"{'Grava' if base=='G' else 'Arena'} con finos {desc_finos}, determinada con la Carta de Plasticidad (SUCS).",
-        )
+                codigo = "CH"
+                base_desc = "Arcilla inorgánica de alta plasticidad (SUCS)."
     else:
-        # 5–12% finos → clasificación dual
-        if IP < linea_A:
-            sufijo = "M"
-            desc_finos = "limosos"
+        # ---------- SUELOS GRANULARES ----------
+        base = "G" if tipo_grueso == "Grava" else "S"
+        F = P200
+
+        if F < 5:
+            codigo = base + "P"
+            base_desc = (
+                f"{'Grava' if base=='G' else 'Arena'} con muy pocos finos; "
+                "gradación asumida pobre (SUCS)."
+            )
+        elif F > 12:
+            if IP < linea_A:
+                sufijo = "M"
+                tipo_finos = "limosos"
+            else:
+                sufijo = "C"
+                tipo_finos = "arcillosos"
+            codigo = base + sufijo
+            base_desc = (
+                f"{'Grava' if base=='G' else 'Arena'} con finos {tipo_finos}, "
+                "determinada con la Carta de Plasticidad (SUCS)."
+            )
         else:
-            sufijo = "C"
-            desc_finos = "arcillosos"
-        codigo = f"{base}P-{base}{sufijo}"
-        return (
-            codigo,
-            f"{'Grava' if base=='G' else 'Arena'} con 5–12% de finos {desc_finos}; clasificación dual (SUCS).",
+            if IP < linea_A:
+                sufijo = "M"
+                tipo_finos = "limosos"
+            else:
+                sufijo = "C"
+                tipo_finos = "arcillosos"
+            codigo = f"{base}P-{base}{sufijo}"
+            base_desc = (
+                f"{'Grava' if base=='G' else 'Arena'} con 5–12% de finos {tipo_finos}; "
+                "clasificación dual (SUCS)."
+            )
+
+    # ---------- ANÁLISIS DETALLADO SEGÚN CÓDIGO ----------
+    desc_extra = ""
+
+    if codigo.startswith("GW") or codigo.startswith("GP") or codigo.startswith("G"):
+        desc_extra = (
+            "Se trata de un suelo granular grueso (gravas), de comportamiento principalmente friccional. "
+            "Presenta alta capacidad de drenaje, baja compresibilidad y elevada resistencia al corte cuando "
+            "está bien compactado. En obras viales es un excelente material para subbase y, en algunos casos, "
+            "para base granular, siempre que se controle la presencia de finos plásticos. En edificaciones, "
+            "las gravas se emplean como relleno estructural y como material de apoyo de cimentaciones "
+            "superficiales, reduciendo asentamientos y mejorando el drenaje alrededor de las zapatas."
         )
+    elif codigo.startswith("SW") or codigo.startswith("SP") or codigo.startswith("S"):
+        desc_extra = (
+            "Corresponde a un suelo granular de tipo arena. Su comportamiento es también friccional, con "
+            "baja compresibilidad siempre que se logre una densificación adecuada. Sin embargo, las arenas "
+            "son más sensibles que las gravas a fenómenos de licuación en zonas sísmicas cuando se encuentran "
+            "saturadas. En vías se utilizan como subrasante y subbase, con buen desempeño si se garantiza el "
+            "drenaje. En edificaciones, son apropiadas como relleno bajo losas y zapatas, pero se recomienda "
+            "evaluar densidad relativa y riesgo de licuación cuando el nivel freático es somero."
+        )
+    elif "GM" in codigo or "SM" in codigo:
+        desc_extra = (
+            "Se trata de un suelo granular con finos limosos. Los finos presentan baja plasticidad, por lo que "
+            "el material mantiene un comportamiento predominantemente friccional, pero se vuelve más sensible "
+            "a la presencia de agua y puede disminuir su capacidad portante en estado saturado. En vías, estos "
+            "materiales pueden emplearse en subbases siempre que el porcentaje de finos se mantenga controlado "
+            "y se incorpore un sistema de drenaje adecuado. En edificaciones, pueden funcionar como relleno "
+            "estructural si se controla la compactación y se evita una saturación prolongada."
+        )
+    elif "GC" in codigo or "SC" in codigo:
+        desc_extra = (
+            "Este es un suelo granular con finos arcillosos. Los finos plásticos generan una cierta cohesión "
+            "aparente, pero también incrementan la sensibilidad a cambios de humedad y la compresibilidad. "
+            "En obras viales, el desempeño como subrasante o subbase es más delicado: es recomendable limitar "
+            "su uso a zonas bien drenadas o recurrir a estabilización con cal/cemento cuando el contenido de "
+            "arcilla es alto. En edificaciones, los rellenos con este tipo de suelo deben evaluarse frente a "
+            "ciclos húmedo-seco y expansión, pudiendo ser necesario mejoramiento o reemplazo parcial."
+        )
+    elif codigo in ("ML", "MH"):
+        desc_extra = (
+            "Es un suelo fino de tipo limoso. Los limos tienen baja resistencia al corte drenado, son muy "
+            "sensibles a la saturación y presentan velocidad de consolidación relativamente rápida en comparación "
+            "con las arcillas. En vías, los limos tienen un comportamiento pobre como subrasante: pueden generar "
+            "deformaciones significativas y pérdida de soporte en temporadas lluviosas; suelen requerir capas "
+            "granulares de mejoramiento o estabilización. En edificaciones, se debe verificar la capacidad "
+            "portante drenada y los asentamientos por consolidación; en estructuras pesadas se prefieren "
+            "cimentaciones profundas o reemplazo parcial del material."
+        )
+    elif codigo in ("CL", "CH"):
+        desc_extra = (
+            "Se trata de una arcilla inorgánica (baja plasticidad CL o alta plasticidad CH). Las arcillas "
+            "presentan cohesión aparente, baja permeabilidad y procesos de consolidación lentos. Las de alta "
+            "plasticidad son expansivas y muy sensibles a variaciones de humedad, con potencial de agrietamiento "
+            "y levantamientos diferenciales. En obras viales, estos suelos son problemáticos como subrasante y "
+            "casi siempre requieren opciones de mejoramiento (estabilización, geosintéticos, capas de transición "
+            "granulares) o reemplazo. En edificaciones, el diseño de cimentaciones debe considerar la compresibilidad "
+            "y la expansión; a menudo se emplean pilotes, losas rígidas flotantes o tratamientos del terreno."
+        )
+    elif codigo.startswith("O") or codigo == "PT":
+        desc_extra = (
+            "El suelo presenta un contenido orgánico significativo (O) o corresponde a turba (PT). Estos materiales "
+            "son extremadamente compresibles, con baja resistencia al corte y comportamiento muy inestable bajo "
+            "cargas. En vías y edificaciones no se recomienda utilizarlos como soporte directo; lo usual es su "
+            "remoción o la implementación de técnicas de mejoramiento y sustitución masiva, o sistemas de "
+            "cimentación profunda que atraviesen el estrato orgánico."
+        )
+
+    descripcion_final = base_desc + " " + desc_extra
+    return codigo, descripcion_final
 
 
 with tabs[1]:
@@ -630,7 +803,7 @@ with tabs[1]:
         if IP_v is not None:
             st.info(f"IP ingresado manualmente: **{IP_v:.2f} %**")
 
-    if LL_v is not None and IP_v is not None and P200_v is not None:
+    if P200_v is not None:
         grupo, subgrupo, GI, tipologia, calidad, uso = classify_aashto_from_table(
             LL_v, IP_v, P10_v, P40_v, P200_v
         )
@@ -786,11 +959,11 @@ with tabs[1]:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
     else:
-        st.info("Ingresa LL, LP/IP y % que pasa por el tamiz #200 para clasificar.")
+        st.info("Ingresa al menos el % que pasa por el tamiz #200 para intentar clasificar.")
 
 
 # ---------------------------------------------------------
-# PARTE 3 – LÍMITE LÍQUIDO (SE DEJA IGUAL QUE ANTES)
+# PARTE 3 – LÍMITE LÍQUIDO
 # ---------------------------------------------------------
 def compute_ll_from_blows(blows, w_list):
     pairs = [
@@ -946,4 +1119,49 @@ La app calcula w (%) y estima el **LL a 25 golpes**.
             )
         else:
             st.plotly_chart(figLL, use_container_width=True)
+            st.info(
+                "Para estimar el LL a 25 golpes se requieren datos por debajo y por encima de N=25."
+            )
 
+        if st.button("💾 Guardar resultado de LL en base de datos"):
+            st.session_state["db_ll"].append(
+                {"Muestra": sample_id_3, "LL_25golpes": LL25}
+            )
+            st.success("Resultado de Límite Líquido guardado en la base de datos.")
+
+        excel_ll = df_to_excel_bytes(df, sheet_name="LL")
+        st.download_button(
+            "⬇️ Descargar tabla del ensayo en Excel",
+            data=excel_ll,
+            file_name=f"limite_liquido_{sample_id_3}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        pdf_lines_ll = [f"Muestra: {sample_id_3}", "Datos del ensayo de LL:"]
+        for (N, wv) in zip(Ns_plot, w_plot):
+            pdf_lines_ll.append(f"N={N} golpes → w={wv:.2f} %")
+        if LL25 is not None:
+            pdf_lines_ll.append("")
+            pdf_lines_ll.append(f"Límite Líquido estimado a 25 golpes: w ≈ {LL25:.2f} %")
+
+        pdf_ll = make_pdf_simple("Informe de ensayo de Límite Líquido", pdf_lines_ll)
+        st.download_button(
+            "⬇️ Descargar informe de Límite Líquido en PDF",
+            data=pdf_ll,
+            file_name=f"LL_{sample_id_3}.pdf",
+            mime="application/pdf",
+        )
+
+        if st.session_state["db_ll"]:
+            st.markdown("### 📚 Base de datos de Límite Líquido (sesión actual)")
+            df_db_ll = pd.DataFrame(st.session_state["db_ll"])
+            st.dataframe(df_db_ll, use_container_width=True)
+            db_ll_excel = df_to_excel_bytes(df_db_ll, sheet_name="BD_LL")
+            st.download_button(
+                "⬇️ Descargar base de datos de LL en Excel",
+                data=db_ll_excel,
+                file_name="bd_limite_liquido.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+    else:
+        st.info("Completa al menos dos puntos del ensayo para ver la gráfica y estimar el LL.")
