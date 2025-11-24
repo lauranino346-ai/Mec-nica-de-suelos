@@ -362,8 +362,7 @@ def classify_aashto_from_table(LL, IP, P10, P40, P200):
 
     CASO ESPECIAL:
     Cuando NO se tienen LL ni IP, si el suelo es granular (P200 < 35%)
-    se intenta clasificar solo en A-1-a, A-1-b o A-3 usando los tamices,
-    tal como pediste.
+    se intenta clasificar solo en A-1-a, A-1-b o A-3 usando los tamices.
     """
     if P200 is None:
         return None, None, None, "No se cuenta con % que pasa por el tamiz #200; no es posible clasificar.", "", ""
@@ -374,7 +373,6 @@ def classify_aashto_from_table(LL, IP, P10, P40, P200):
         grupo = None
         subgrupo = None
 
-        # Solo podemos llegar a A-1 o A-3 (materiales granulares)
         if P200 < 35:
             P10_ok = P10 is not None
             P40_ok = P40 is not None
@@ -401,7 +399,6 @@ def classify_aashto_from_table(LL, IP, P10, P40, P200):
                 "",
             )
 
-        # Interpretación geotécnica básica
         tipologia = ""
         calidad = ""
         uso = ""
@@ -580,16 +577,77 @@ def classify_aashto_from_table(LL, IP, P10, P40, P200):
 def classify_sucs_from_aashto(LL, IP, P200, grupo_aashto, subgrupo_aashto, P10, P40):
     """
     Usa el resultado AASHTO para inferir si el suelo es granular (grava/arena)
-    o fino, y a partir de eso hace una clasificación SUCS simplificada
-    (con Carta de Plasticidad).
+    o fino, y a partir de eso hace una clasificación SUCS simplificada.
 
-    Además devuelve un análisis más completo del comportamiento y
-    recomendaciones para obras civiles.
+    CASO ESPECIAL (OPCIÓN A SIMPLE, SEGURA):
+    - Si NO hay LL ni IP, pero el suelo es A-1 o A-3 y P200 indica material granular,
+      se genera una SUCS aproximada (GP o SP) a partir del resultado AASHTO,
+      sin que el usuario tenga que escoger nada.
     """
     if P200 is None:
         return None, "No se cuenta con % que pasa por el tamiz #200; no es posible clasificar SUCS."
 
-    # Si no hay límites de Atterberg, avisamos que la SUCS es incompleta
+    # --------- CASO ESPECIAL: SIN LL NI IP, PERO CON AASHTO A-1 / A-3 ----------
+    if (LL is None or LL == 0) and (IP is None or IP == 0):
+        if grupo_aashto is None:
+            return (
+                None,
+                "No hay límites de Atterberg ni grupo AASHTO definido; "
+                "no es posible estimar una clasificación SUCS.",
+            )
+
+        # Solo estimamos SUCS si el material es claramente granular (P200 < 50)
+        if P200 >= 50:
+            return (
+                None,
+                "Sin límites de Atterberg no es posible diferenciar limo/arcilla "
+                "en suelos finos (P200 ≥ 50%).",
+            )
+
+        tipo_grueso = None
+        if grupo_aashto.startswith("A-1"):
+            # Si mucha fracción pasa por #40, se comporta más como arena fina
+            if P40 is not None and P40 > 50:
+                tipo_grueso = "Arena"
+            else:
+                tipo_grueso = "Grava"
+        elif grupo_aashto == "A-3":
+            tipo_grueso = "Arena"
+
+        if tipo_grueso is None:
+            return (
+                None,
+                "Sin límites de Atterberg la estimación SUCS solo se hace de forma confiable "
+                "para materiales A-1 o A-3 claramente granulares.",
+            )
+
+        # Definimos un código SUCS aproximado (no plástico) en función del tipo grueso
+        if tipo_grueso == "Grava":
+            codigo = "GP"  # grava pobremente graduada, no plástica
+            base_desc = (
+                "Grava pobremente graduada con muy pocos finos, no plástica "
+                "(clasificación SUCS estimada a partir del grupo A-1 de AASHTO)."
+            )
+        else:
+            codigo = "SP"  # arena pobremente graduada, no plástica
+            base_desc = (
+                "Arena pobremente graduada con muy pocos finos, no plástica "
+                "(clasificación SUCS estimada a partir de los grupos A-1 / A-3 de AASHTO)."
+            )
+
+        desc_extra = (
+            "Es un suelo granular de comportamiento principalmente friccional, "
+            "con alta capacidad de drenaje y baja compresibilidad cuando se compacta "
+            "adecuadamente. En obras viales es muy adecuado como subbase e incluso base "
+            "granular, siempre que se controle la presencia de finos plásticos. "
+            "En edificaciones se utiliza como relleno estructural y material de apoyo de "
+            "cimentaciones superficiales y losas, ayudando a reducir asentamientos y a "
+            "facilitar el drenaje alrededor de las estructuras."
+        )
+
+        return codigo, base_desc + " " + desc_extra
+
+    # --------- CASO GENERAL: CON LL e IP (como antes) ----------
     if LL is None or IP is None:
         return (
             None,
@@ -609,7 +667,6 @@ def classify_sucs_from_aashto(LL, IP, P200, grupo_aashto, subgrupo_aashto, P10, 
     elif grupo_aashto == "A-3":
         tipo_grueso = "Arena"
     elif grupo_aashto == "A-2":
-        # usamos #40 para separar arena fina de grava
         if P40 is not None and P40 > 50:
             tipo_grueso = "Arena"
         else:
@@ -967,7 +1024,7 @@ with tabs[1]:
 # ---------------------------------------------------------
 def compute_ll_from_blows(blows, w_list):
     pairs = [
-        (b, w) for b, w in zip(blows, w_list) if b is not None and w is not None and b > 0
+        (b, w) for b, w in zip(blows, w_list) if b is not None and b > 0 and w is not None
     ]
     if not pairs:
         return None
@@ -1165,3 +1222,4 @@ La app calcula w (%) y estima el **LL a 25 golpes**.
             )
     else:
         st.info("Completa al menos dos puntos del ensayo para ver la gráfica y estimar el LL.")
+
