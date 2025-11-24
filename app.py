@@ -221,7 +221,6 @@ Usando:
             key="secR_h",
         )
     with colh3:
-:
         R_h = st.number_input(
             "Peso del recipiente (g)",
             min_value=0.0,
