@@ -180,6 +180,82 @@ def compute_fases_personalizadas(Ww, Ws, Va, Vw, Vs, gamma_w, Gs):
 
 
 with tabs[0]:
+    # -----------------------------------------------------
+    # 0️⃣ CÁLCULO RÁPIDO DE CONTENIDO DE HUMEDAD
+    # -----------------------------------------------------
+    st.subheader("0️⃣ Cálculo rápido de contenido de humedad")
+
+    st.markdown(
+        """
+Se calcula el **contenido de humedad W (%)** a partir de:
+
+- Peso húmedo + recipiente  
+- Peso seco + recipiente  
+- Peso del recipiente  
+
+Usando:
+
+- Ws = (Ws+R) − R  
+- Wh = (Wh+R) − R  
+- Ww = Wh − Ws  
+- W (%) = (Ww / Ws) × 100
+        """
+    )
+
+    colh1, colh2, colh3 = st.columns(3)
+    with colh1:
+        WhR_h = st.number_input(
+            "Peso húmedo + recipiente (g)",
+            min_value=0.0,
+            step=0.1,
+            value=0.0,
+            key="humR_h",
+        )
+    with colh2:
+        WsR_h = st.number_input(
+            "Peso seco + recipiente (g)",
+            min_value=0.0,
+            step=0.1,
+            value=0.0,
+            key="secR_h",
+        )
+    with colh3:
+        R_h = st.number_input(
+            "Peso del recipiente (g)",
+            min_value=0.0,
+            step=0.1,
+            value=0.0,
+            key="R_h",
+        )
+
+    errores_humedad = []
+    if WhR_h < 0 or WsR_h < 0 or R_h < 0:
+        errores_humedad.append("Los pesos no pueden ser negativos.")
+
+    if not errores_humedad and WhR_h > 0 and WsR_h > 0 and R_h > 0:
+        Ws_suelo_h = WsR_h - R_h
+        Wh_suelo_h = WhR_h - R_h
+        Ww_h = Wh_suelo_h - Ws_suelo_h
+
+        if Ws_suelo_h <= 0:
+            errores_humedad.append(
+                "El peso seco del suelo (Ws+R − R) debe ser mayor que cero."
+            )
+
+        if errores_humedad:
+            st.error("⚠️ Corrige los siguientes problemas:\n\n- " + "\n- ".join(errores_humedad))
+        else:
+            W_percent_h = (Ww_h / Ws_suelo_h) * 100.0
+            st.write(f"**Ws (suelo seco)** = {Ws_suelo_h:.4g} g")
+            st.write(f"**Wh (suelo húmedo)** = {Wh_suelo_h:.4g} g")
+            st.write(f"**Ww (peso del agua)** = {Ww_h:.4g} g")
+            st.success(f"**Contenido de humedad W = {W_percent_h:.2f} %**")
+    elif not errores_humedad and (WhR_h == 0 or WsR_h == 0 or R_h == 0):
+        st.info("Ingresa valores mayores que cero para calcular el contenido de humedad.")
+
+    # -----------------------------------------------------
+    # 1️⃣ FASES GRAVIMÉTRICAS Y VOLUMÉTRICAS
+    # -----------------------------------------------------
     st.subheader("1️⃣ Fases gravimétricas y volumétricas (g y cm³)")
 
     st.markdown(
@@ -197,25 +273,65 @@ with tabs[0]:
     col1, col2 = st.columns(2)
 
     with col1:
-        Ww = st.number_input("Peso del agua Ww (g)", value=0.0, step=0.1)
-        Ws = st.number_input("Peso del sólido Ws (g)", value=0.0, step=0.1)
-        Va = st.number_input("Volumen de aire Va (cm³)", value=0.0, step=0.1)
-        Vw = st.number_input("Volumen de agua Vw (cm³)", value=0.0, step=0.1)
-        Vs = st.number_input("Volumen de sólidos Vs (cm³)", value=0.0, step=0.1)
+        Ww = st.number_input(
+            "Peso del agua Ww (g)",
+            min_value=0.0,
+            value=0.0,
+            step=0.1,
+        )
+        Ws = st.number_input(
+            "Peso del sólido Ws (g)",
+            min_value=0.0,
+            value=0.0,
+            step=0.1,
+        )
+        Va = st.number_input(
+            "Volumen de aire Va (cm³)",
+            min_value=0.0,
+            value=0.0,
+            step=0.1,
+        )
+        Vw = st.number_input(
+            "Volumen de agua Vw (cm³)",
+            min_value=0.0,
+            value=0.0,
+            step=0.1,
+        )
+        Vs = st.number_input(
+            "Volumen de sólidos Vs (cm³)",
+            min_value=0.0,
+            value=0.0,
+            step=0.1,
+        )
 
     with col2:
         gamma_w = st.number_input(
             "Peso específico del agua γw (g/cm³)",
+            min_value=0.0,
             value=1.0,
             step=0.01,
             help="Para g y cm³ se usa γw ≈ 1 g/cm³.",
         )
         Gs = st.number_input(
             "Gravedad específica de los sólidos Gs (adimensional)",
+            min_value=0.0,
             value=2.65,
             step=0.01,
             help="Típicamente entre 2.60 y 2.75 para suelos minerales inorgánicos.",
         )
+
+    # Validación simple de datos de fases
+    errores_fases = []
+    for nombre, val in [("Ww", Ww), ("Ws", Ws), ("Va", Va), ("Vw", Vw), ("Vs", Vs)]:
+        if val < 0:
+            errores_fases.append(f"{nombre} no puede ser negativo.")
+    if gamma_w < 0:
+        errores_fases.append("γw no puede ser negativo.")
+    if Gs < 0:
+        errores_fases.append("Gs no puede ser negativo.")
+
+    if errores_fases:
+        st.error("⚠️ Corrige los siguientes problemas en la parte de fases:\n\n- " + "\n- ".join(errores_fases))
 
     def nz(x):
         return None if x == 0 else x
@@ -226,7 +342,7 @@ with tabs[0]:
     Vw_v = nz(Vw)
     Vs_v = nz(Vs)
 
-    if Ww_v and Ws_v and (Va_v or Vw_v or Vs_v):
+    if not errores_fases and Ww_v and Ws_v and (Va_v or Vw_v or Vs_v):
         results, Vt_calc, Vv_calc, Va_c, Vw_c, Vs_c, Wt_c = compute_fases_personalizadas(
             Ww_v, Ws_v, Va_v or 0.0, Vw_v or 0.0, Vs_v or 0.0, gamma_w, Gs
         )
@@ -338,7 +454,7 @@ with tabs[0]:
                 file_name="bd_fases_suelos.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-    else:
+    elif not errores_fases:
         st.warning("Ingresa al menos Ww, Ws y algunos volúmenes para calcular las fases.")
 
 
@@ -817,20 +933,54 @@ with tabs[1]:
     colA1, colA2 = st.columns(2)
 
     with colA1:
-        LL = st.number_input("Límite líquido LL (%)", value=0.0, step=0.1)
-        LP = st.number_input("Límite plástico LP (%)", value=0.0, step=0.1)
+        LL = st.number_input(
+            "Límite líquido LL (%)",
+            min_value=0.0,
+            max_value=200.0,
+            step=0.1,
+            value=0.0,
+        )
+        LP = st.number_input(
+            "Límite plástico LP (%)",
+            min_value=0.0,
+            max_value=200.0,
+            step=0.1,
+            value=0.0,
+        )
 
     with colA2:
         IP_manual = st.number_input(
-            "Índice de plasticidad IP (si lo quieres ingresar manualmente)", value=0.0, step=0.1
+            "Índice de plasticidad IP (si lo quieres ingresar manualmente)",
+            min_value=0.0,
+            max_value=200.0,
+            value=0.0,
+            step=0.1,
         )
 
     colTam1, colTam2 = st.columns(2)
     with colTam1:
-        P10 = st.number_input("% que pasa tamiz #10", value=0.0, step=0.1)
-        P40 = st.number_input("% que pasa tamiz #40", value=0.0, step=0.1)
+        P10 = st.number_input(
+            "% que pasa tamiz #10",
+            min_value=0.0,
+            max_value=100.0,
+            step=0.1,
+            value=0.0,
+        )
+        P40 = st.number_input(
+            "% que pasa tamiz #40",
+            min_value=0.0,
+            max_value=100.0,
+            step=0.1,
+            value=0.0,
+        )
     with colTam2:
-        P200 = st.number_input("% que pasa tamiz #200", value=0.0, step=0.1)
+        P200 = st.number_input(
+            "% que pasa tamiz #200",
+            min_value=0.0,
+            max_value=100.0,
+            step=0.1,
+            value=0.0,
+        )
 
     modo_ip = st.radio(
         "Forma de obtener el Índice de Plasticidad (IP)",
@@ -860,7 +1010,39 @@ with tabs[1]:
         if IP_v is not None:
             st.info(f"IP ingresado manualmente: **{IP_v:.2f} %**")
 
-    if P200_v is not None:
+    # ----------------- VALIDACIÓN DE RANGOS Y COHERENCIA -----------------
+    errores = []
+
+    # 1. Coherencia LL y LP
+    if LL_v is not None and LP_v is not None:
+        if LL_v < LP_v:
+            errores.append("El límite líquido (LL) no puede ser menor que el límite plástico (LP).")
+
+    # 2. Coherencia de porcentajes de tamices
+    if P10_v is not None and P10_v > 100:
+        errores.append("% que pasa tamiz #10 no puede ser mayor que 100%.")
+    if P40_v is not None and P40_v > 100:
+        errores.append("% que pasa tamiz #40 no puede ser mayor que 100%.")
+    if P200_v is not None and P200_v > 100:
+        errores.append("% que pasa tamiz #200 no puede ser mayor que 100%.")
+
+    # Relación P200 ≤ P40 ≤ P10 (si existen)
+    if P10_v is not None and P40_v is not None:
+        if P40_v > P10_v:
+            errores.append("% pasa #40 no puede ser mayor que % pasa #10 (P40 ≤ P10).")
+
+    if P40_v is not None and P200_v is not None:
+        if P200_v > P40_v:
+            errores.append("% pasa #200 no puede ser mayor que % pasa #40 (P200 ≤ P40).")
+
+    # IP negativo
+    if IP_v is not None and IP_v < 0:
+        errores.append("El índice de plasticidad (IP) no puede ser negativo (LL debe ser ≥ LP).")
+
+    if errores:
+        st.error("⚠️ Corrige los siguientes problemas en los datos de clasificación:\n\n- " + "\n- ".join(errores))
+
+    if P200_v is not None and not errores:
         grupo, subgrupo, GI, tipologia, calidad, uso = classify_aashto_from_table(
             LL_v, IP_v, P10_v, P40_v, P200_v
         )
@@ -1015,7 +1197,7 @@ with tabs[1]:
                 file_name="bd_clasificacion_suelos.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-    else:
+    elif not errores:
         st.info("Ingresa al menos el % que pasa por el tamiz #200 para intentar clasificar.")
 
 
@@ -1079,18 +1261,18 @@ La app calcula w (%) y estima el **LL a 25 golpes**.
 
     cols_header = st.columns(4)
     cols_header[0].write("**Golpes N**")
-    cols_header[1].write("**Peso seco + Recipiente**")
-    cols_header[2].write("**Peso húmedo + Recipiente**")
-    cols_header[3].write("**Peso del recipiente**")
+    cols_header[1].write("**Peso seco + Recipiente (g)**")
+    cols_header[2].write("**Peso húmedo + Recipiente (g)**")
+    cols_header[3].write("**Peso del recipiente (g)**")
 
     golpes, w_seco_rec, w_hum_rec, w_rec = [], [], [], []
 
     for i in range(int(n_puntos)):
         c1, c2, c3, c4 = st.columns(4)
-        golpes.append(c1.number_input(f"N golpes {i+1}", value=0.0, key=f"golpes_{i}"))
-        w_seco_rec.append(c2.number_input(f"Ws+R {i+1}", value=0.0, key=f"wsr_{i}"))
-        w_hum_rec.append(c3.number_input(f"Wh+R {i+1}", value=0.0, key=f"whr_{i}"))
-        w_rec.append(c4.number_input(f"R {i+1}", value=0.0, key=f"rec_{i}"))
+        golpes.append(c1.number_input(f"N golpes {i+1}", value=0.0, step=1.0, key=f"golpes_{i}"))
+        w_seco_rec.append(c2.number_input(f"Ws+R {i+1}", value=0.0, step=0.1, key=f"wsr_{i}"))
+        w_hum_rec.append(c3.number_input(f"Wh+R {i+1}", value=0.0, step=0.1, key=f"whr_{i}"))
+        w_rec.append(c4.number_input(f"R {i+1}", value=0.0, step=0.1, key=f"rec_{i}"))
 
     Ws_list, Wh_list, Wagua_list, w_list = [], [], [], []
 
@@ -1117,12 +1299,12 @@ La app calcula w (%) y estima el **LL a 25 golpes**.
     df = pd.DataFrame(
         {
             "N golpes": golpes,
-            "Ws+R": w_seco_rec,
-            "Wh+R": w_hum_rec,
-            "R": w_rec,
-            "Ws suelo": Ws_list,
-            "Wh suelo": Wh_list,
-            "Peso agua": Wagua_list,
+            "Ws+R (g)": w_seco_rec,
+            "Wh+R (g)": w_hum_rec,
+            "R (g)": w_rec,
+            "Ws suelo (g)": Ws_list,
+            "Wh suelo (g)": Wh_list,
+            "Peso agua (g)": Wagua_list,
             "w (%)": w_list,
         }
     )
@@ -1222,4 +1404,3 @@ La app calcula w (%) y estima el **LL a 25 golpes**.
             )
     else:
         st.info("Completa al menos dos puntos del ensayo para ver la gráfica y estimar el LL.")
-
