@@ -1421,3 +1421,4 @@ La app calcula w (%) y estima el **LL a 25 golpes**.
             )
     else:
         st.info("Completa al menos dos puntos del ensayo para ver la gráfica y estimar el LL.")
+
